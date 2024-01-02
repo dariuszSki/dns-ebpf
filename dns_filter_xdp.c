@@ -102,41 +102,58 @@ static inline struct dns_name_struct *get_dns(const int index, const void *dns_q
 }
 
 static inline int compare_domain_names(const struct dns_name_struct *dnc, const struct dns_name_struct *dni) {
-    //const uint8_t dni_new_start = dni->dns_length - dnc->dns_length - 1;
-    /* check if the configured domain length is not more than 128 chars long */
-
+    //const uint8_t dni_reverse_start = dni->dns_length - dnc->dns_length - 1;
+    /* check if the configured domain length is not more than MAX_ALLOWED_CHARS chars long */
+    int y =0; /* character counter */
     for (int z = 0; z < MAX_ALLOWED_CHARS; z++) {
-        const uint8_t dni_new_start = dni->dns_length - dnc->dns_length - 1 + z;
-        /* if null character is reached, the match is a success; break out */
-        if (dni->dns_name[dni_new_start] == '\0') {
-            bpf_printk("reached null char 0");
-            return 0;
+        /* Point to the last char of each string to start counting */
+        const uint8_t dni_reverse_start = dni->dns_length - 2 - z;
+        const uint8_t dnc_reverse_start = dnc->dns_length - 2 - z;
+        // bpf_printk("char count is %d", y);
+        // bpf_printk("z is %d", z);
+        // bpf_printk("dnc->dns_length is %d", dnc->dns_length);
+        /* if custom domain char is a dot and intercepted domain name char is dot in form of char count */
+        if (dnc->dns_name[dnc_reverse_start] == '.' && dni->dns_name[dni_reverse_start] == y) {
+            // bpf_printk("dni start char is %x", dni->dns_name[dni_reverse_start]);
+            // bpf_printk("dnc start char is %x", dnc->dns_name[dnc_reverse_start]);
+            /* reset character counter for domain/subdomain */
+            y=0;
+        /* if custom domain reached its length and intercepted domain char is dot in form of char count */
+        } else if (dnc->dns_length == z+1 && dni->dns_name[dni_reverse_start] == y) {
+            // bpf_printk("dni start char is %x", dni->dns_name[dni_reverse_start]);
+            // bpf_printk("dnc start char is %x", dnc->dns_name[dnc_reverse_start]);
+             break;
+        /* if custom domain and intercepted domain chars are not the same */
+        } else if (dni->dns_name[dni_reverse_start] != dnc->dns_name[dnc_reverse_start]) {
+            return 1;
+        /* if neither of the previous asks are true, then increase the char counter and continue to compare chars  */
+        } else {
+            y++;
         }
-        /* if both chars are not equalled return 1, otherwise continue */
-        if (dni->dns_name[dni_new_start] != dnc->dns_name[z]) {
-            /* logic to figure out the dot location in the incoming packet;
-             * every dot is replacee with the number of characters following this dot
-             * before next dot or null character.
-             */
-            if (dni->dns_name[dni_new_start] == 0x03 && dnc->dns_name[z] == 0x2E) {
-                bpf_printk("03 dni start char is %x", dni->dns_name[dni_new_start]);
-                bpf_printk("03 dnc start char is %x", dnc->dns_name[z]);
-            } else if (dni->dns_name[dni_new_start] == 0x04 && dnc->dns_name[z] == 0x2E) {
-                bpf_printk("04 dni start char is %x", dni->dns_name[dni_new_start]);
-                bpf_printk("04 dnc start char is %x", dnc->dns_name[z]);
-            } else {
-                return 1;
-            }
-        }
-        bpf_printk("dni start char is %x", dni->dns_name[dni_new_start]);
-        bpf_printk("dnc start char is %x", dnc->dns_name[z]);
     }
     return 0;
+}
+
+static inline uint16_t ip_checksum(unsigned short *buf, int bufsz) {
+    unsigned long sum = 0;
+
+    while (bufsz > 1) {
+        sum += *buf;
+        buf++;
+        bufsz -= 2;
+    }
+    if (bufsz == 1) {
+        sum += *(unsigned char *)buf;
+    }
+    sum = (sum & 0xffff) + (sum >> 16);
+    sum = (sum & 0xffff) + (sum >> 16);
+    return ~sum;
 }
 
 /* Main ebpf program */
 SEC("xdp")
 int xdp_filter(struct xdp_md *ctx) {
+
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(ctx->data);
     /* verify its a valid eth header within the packet bounds */
     if ((unsigned long)(eth + 1) > (unsigned long)ctx->data_end){
@@ -195,12 +212,23 @@ int xdp_filter(struct xdp_md *ctx) {
                     const int result = compare_domain_names(domain_name_configured, domain_name_intercepted);
                     // bpf_printk("result is %d", result);
                     if (result == 0) {
+                        // __uint8_t dst_mac[6];
+                        // for (int z=0; z < 6; z++) {
+                        //     dst_mac[z] = 0x00;
+                        // }
                         bpf_printk("found entry is same");
+                        // iph->daddr = bpf_htonl(0x7f000001);
+                        // iph->daddr = bpf_htonl(0x0a60179d);
+                        // iph->check = 0;
+                        // iph->check = ip_checksum((__u16 *)iph, sizeof(struct iphdr));
+                        // memcpy(&eth->h_dest, &dst_mac,sizeof(eth->h_dest));
+                        // // memcpy(&eth->h_source, &tus->dest,6);
+                        // return bpf_redirect(1, 0);
                     } else {
-                        bpf_printk("found entry is not same");
+                        // bpf_printk("found entry is not same");
                     }
                 } else {
-                    bpf_printk("no entry found");
+                    // bpf_printk("no entry found");
                 }
             }
                 /* Move dns payload pointer to next question or section */

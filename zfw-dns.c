@@ -69,16 +69,17 @@ void map_update() {
         } else if (strlen(domain_name.dns_name) == 0) {
             printf("@key %d - no entry, adding new entry %s.\n", key, private_domain_name);
             int domain_suffix_length = sprintf(domain_name.dns_name, "%s", private_domain_name);
-            domain_name.dns_length = domain_suffix_length;
+            domain_name.dns_length = domain_suffix_length + 1;
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &domain_map, sizeof(domain_map));
             if (ret) {
                 printf("MAP_UPDATE_ELEM: %s\n", strerror(errno));
             }
             break;
         } else if (key == (MAX_INDEX_ENTRIES-1)) {
+            key = 0; /* rewrite fist entry */
             printf("@key %d - found suffix %s, replacing it with %s\n", key, domain_name.dns_name, private_domain_name);
             int domain_suffix_length = sprintf(domain_name.dns_name, "%s", private_domain_name);
-            domain_name.dns_length = domain_suffix_length;
+            domain_name.dns_length = domain_suffix_length + 1;
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &domain_map, sizeof(domain_map));
             if (ret) {
                 printf("MAP_UPDATE_ELEM: %s\n", strerror(errno));
